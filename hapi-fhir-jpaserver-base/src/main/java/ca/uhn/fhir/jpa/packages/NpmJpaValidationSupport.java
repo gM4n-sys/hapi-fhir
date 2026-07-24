@@ -21,7 +21,8 @@ package ca.uhn.fhir.jpa.packages;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
-import ca.uhn.fhir.context.support.CodeSystemIdentifierResolver;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierMatcher;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierRequest;
 import ca.uhn.fhir.context.support.IValidationSupport;
 import jakarta.annotation.Nonnull;
 import jakarta.annotation.Nullable;
@@ -55,14 +56,23 @@ public class NpmJpaValidationSupport implements IValidationSupport {
 
 	@Override
 	@Nullable
-	public IBaseResource fetchCodeSystemByIdentifier(
-			@Nonnull String theIdentifierSystem, @Nonnull String theIdentifierValue, @Nullable String theVersion) {
+	public IBaseResource fetchCanonicalResourceByIdentifier(@Nonnull CanonicalResourceIdentifierRequest theRequest) {
+
+		switch (theRequest.resourceType()) {
+			case "CodeSystem":
+			case "ValueSet":
+			case "StructureDefinition":
+				break;
+			default:
+				return null;
+		}
 
 		FhirVersionEnum fhirVersion = myFhirContext.getVersion().getVersion();
-		List<IBaseResource> codeSystems = myHapiPackageCacheManager.loadPackageAssetsByType(fhirVersion, "CodeSystem");
 
-		return CodeSystemIdentifierResolver.findCodeSystem(
-				myFhirContext, codeSystems, theIdentifierSystem, theIdentifierValue, theVersion);
+		List<IBaseResource> resources =
+				myHapiPackageCacheManager.loadPackageAssetsByType(fhirVersion, theRequest.resourceType());
+
+		return CanonicalResourceIdentifierMatcher.findMatch(myFhirContext, resources, theRequest);
 	}
 
 	@Override

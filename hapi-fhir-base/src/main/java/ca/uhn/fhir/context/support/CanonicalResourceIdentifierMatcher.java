@@ -36,70 +36,64 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 /**
- * Utility for resolving CodeSystem resources by CodeSystem.identifier.
+ * Utility for matching canonical resources using their formal identifiers.
  */
-public final class CodeSystemIdentifierResolver {
+public final class CanonicalResourceIdentifierMatcher {
 
 	private static final String PIPE = "|";
 
-	private CodeSystemIdentifierResolver() {
+	private CanonicalResourceIdentifierMatcher() {
 		// Utility class
 	}
 
 	/**
-	 * Finds a CodeSystem using an exact identifier system/value match and,
-	 * when supplied, an exact CodeSystem.version match.
+	 * Finds a canonical resource using an exact identifier system/value match
+	 * and, when supplied, an exact resource version match.
 	 *
 	 * <p>Duplicate resources representing the same canonical URL and version
 	 * are collapsed. Different canonical targets are considered ambiguous.</p>
 	 *
 	 * @param theFhirContext
 	 * 		the FHIR context
-	 * @param theResources
-	 * 		CodeSystem candidates or a broader collection of conformance resources
-	 * @param theIdentifierSystem
-	 * 		the exact CodeSystem.identifier.system value
-	 * @param theIdentifierValue
-	 * 		the exact CodeSystem.identifier.value value
-	 * @param theVersion
-	 * 		optional exact CodeSystem.version
-	 * @return the resolved CodeSystem, or {@code null}
+	 * @param theCandidates
+	 * 		candidate resources already selected by the backend
+	 * @param theRequest
+	 * 		the identifier lookup request
+	 * @return the resolved canonical resource, or {@code null}
 	 */
 	@Nullable
-	public static IBaseResource findCodeSystem(
+	public static IBaseResource findMatch(
 			@Nonnull FhirContext theFhirContext,
-			@Nullable Iterable<? extends IBaseResource> theResources,
-			@Nonnull String theIdentifierSystem,
-			@Nonnull String theIdentifierValue,
-			@Nullable String theVersion) {
+			@Nullable Iterable<? extends IBaseResource> theCandidates,
+			@Nonnull CanonicalResourceIdentifierRequest theRequest) {
 
 		Objects.requireNonNull(theFhirContext);
-		Objects.requireNonNull(theIdentifierSystem);
-		Objects.requireNonNull(theIdentifierValue);
+		Objects.requireNonNull(theRequest);
 
-		if (theResources == null) {
+		if (theCandidates == null) {
 			return null;
 		}
 
 		Map<String, IBaseResource> uniqueTargets = new LinkedHashMap<>();
 
-		for (IBaseResource resource : theResources) {
-			if (resource == null
-					|| !isCodeSystem(theFhirContext, resource)
-					|| !hasIdentifier(theFhirContext, resource, theIdentifierSystem, theIdentifierValue)) {
+		for (IBaseResource candidate : theCandidates) {
+			if (candidate == null
+					|| !hasIdentifier(
+							theFhirContext, candidate, theRequest.identifierSystem(), theRequest.identifierValue())) {
 				continue;
 			}
 
-			String resourceVersion = readPrimitive(theFhirContext, resource, "version");
+			String resourceVersion = readPrimitive(theFhirContext, candidate, "version");
 
-			if (isNotBlank(theVersion) && !Objects.equals(theVersion, resourceVersion)) {
+			if (isNotBlank(theRequest.version()) && !Objects.equals(theRequest.version(), resourceVersion)) {
 				continue;
 			}
 
-			String canonicalUrl = readPrimitive(theFhirContext, resource, "url");
+			String canonicalUrl = readPrimitive(theFhirContext, candidate, "url");
 
 			/*
-			 * A CodeSystem without a canonical URL is not a valid alias target.
+			 * A canonical resource without a canonical URL is not a valid
+			 * alias target.
 			 */
 			if (isBlank(canonicalUrl)) {
 				continue;
@@ -109,9 +103,9 @@ public final class CodeSystemIdentifierResolver {
 
 			/*
 			 * Collapse duplicate representations of the same canonical
-			 * CodeSystem target.
+			 * resource target.
 			 */
-			uniqueTargets.putIfAbsent(canonicalKey, resource);
+			uniqueTargets.putIfAbsent(canonicalKey, candidate);
 		}
 
 		if (uniqueTargets.isEmpty()) {
@@ -119,11 +113,13 @@ public final class CodeSystemIdentifierResolver {
 		}
 
 		if (uniqueTargets.size() > 1) {
-			throw new IllegalStateException("Ambiguous CodeSystem identifier "
-					+ theIdentifierSystem
+			throw new IllegalStateException("Ambiguous "
+					+ theRequest.resourceType()
+					+ " identifier "
+					+ theRequest.identifierSystem()
 					+ PIPE
-					+ theIdentifierValue
-					+ versionSuffix(theVersion)
+					+ theRequest.identifierValue()
+					+ versionSuffix(theRequest.version())
 					+ ". Matching canonical targets: "
 					+ String.join(", ", uniqueTargets.keySet()));
 		}
@@ -131,29 +127,18 @@ public final class CodeSystemIdentifierResolver {
 		return uniqueTargets.values().iterator().next();
 	}
 
-	private static boolean isCodeSystem(FhirContext theFhirContext, IBaseResource theResource) {
-
-		try {
-			return "CodeSystem"
-					.equals(theFhirContext.getResourceDefinition(theResource).getName());
-		} catch (RuntimeException e) {
-			return false;
-		}
-	}
-
 	private static boolean hasIdentifier(
 			FhirContext theFhirContext,
-			IBaseResource theCodeSystem,
+			IBaseResource theResource,
 			String theIdentifierSystem,
 			String theIdentifierValue) {
 
 		FhirTerser terser = theFhirContext.newTerser();
-
-		List<IBase> identifiers = terser.getValues(theCodeSystem, "identifier");
+		List<IBase> identifiers = terser.getValues(theResource, "identifier");
 
 		for (IBase identifier : identifiers) {
-
 			String system = readPrimitive(theFhirContext, identifier, "system");
+
 			String value = readPrimitive(theFhirContext, identifier, "value");
 
 			if (theIdentifierSystem.equals(system) && theIdentifierValue.equals(value)) {

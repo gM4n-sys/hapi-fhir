@@ -2,7 +2,8 @@ package org.hl7.fhir.common.hapi.validation.support;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
-import ca.uhn.fhir.context.support.CodeSystemIdentifierResolver;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierMatcher;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierRequest;
 import ca.uhn.fhir.context.support.IValidationSupport;
 import ca.uhn.fhir.context.support.ValidationSupportContext;
 import ca.uhn.fhir.util.ILockable;
@@ -314,11 +315,25 @@ public class PrePopulatedValidationSupport extends BaseValidationSupport impleme
 
 	@Override
 	@Nullable
-	public IBaseResource fetchCodeSystemByIdentifier(
-			@Nonnull String theIdentifierSystem, @Nonnull String theIdentifierValue, @Nullable String theVersion) {
+	public IBaseResource fetchCanonicalResourceByIdentifier(@Nonnull CanonicalResourceIdentifierRequest theRequest) {
 
-		return CodeSystemIdentifierResolver.findCodeSystem(
-				getFhirContext(), myUrlToCodeSystems.values(), theIdentifierSystem, theIdentifierValue, theVersion);
+		Iterable<? extends IBaseResource> candidates;
+
+		switch (theRequest.resourceType()) {
+			case "CodeSystem":
+				candidates = myUrlToCodeSystems.values();
+				break;
+			case "ValueSet":
+				candidates = myUrlToValueSets.values();
+				break;
+			case "StructureDefinition":
+				candidates = myUrlToStructureDefinitions.values();
+				break;
+			default:
+				return null;
+		}
+
+		return CanonicalResourceIdentifierMatcher.findMatch(getFhirContext(), candidates, theRequest);
 	}
 
 	@Override

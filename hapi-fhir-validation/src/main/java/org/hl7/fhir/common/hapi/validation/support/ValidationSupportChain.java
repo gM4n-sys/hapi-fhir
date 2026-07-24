@@ -4,7 +4,7 @@ import ca.uhn.fhir.context.BaseRuntimeElementDefinition;
 import ca.uhn.fhir.context.ConfigurationException;
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
-import ca.uhn.fhir.context.support.CodeSystemIdentifierResolver;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierRequest;
 import ca.uhn.fhir.context.support.ConceptValidationOptions;
 import ca.uhn.fhir.context.support.IValidationSupport;
 import ca.uhn.fhir.context.support.LookupCodeRequest;
@@ -719,7 +719,18 @@ public class ValidationSupportChain implements IValidationSupport {
 
 		ResourceByUrlKey<IBaseResource> key = new ResourceByUrlKey<>(ResourceByUrlKey.TypeEnum.CODESYSTEM, theSystem);
 
-		CacheValue<IBaseResource> retVal = getFromCache(key);
+		return fetchCanonicalResource(key, "CodeSystem", theSystem);
+	}
+
+	@Nullable
+	private IBaseResource fetchCanonicalResource(
+			ResourceByUrlKey<IBaseResource> theKey, String theResourceType, String theReference) {
+
+		if (isBlank(theReference)) {
+			return null;
+		}
+
+		CacheValue<IBaseResource> retVal = getFromCache(theKey);
 
 		if (retVal != null) {
 			return retVal.getValue();
@@ -727,67 +738,87 @@ public class ValidationSupportChain implements IValidationSupport {
 
 		retVal = CacheValue.empty();
 
-		IBaseResource canonicalResult = fetchCodeSystemByCanonicalUrl(theSystem);
+		/*
+		 * Canonical URLs always have global priority across the complete
+		 * validation-support chain.
+		 */
+		IBaseResource canonicalResult = fetchCanonicalResourceByCanonicalUrl(theResourceType, theReference);
 
 		if (canonicalResult != null) {
 			retVal = new CacheValue<>(canonicalResult);
 		}
 
+		/*
+		 * Only attempt identifier alias resolution after the complete canonical
+		 * lookup phase has failed.
+		 */
 		if (retVal.getValue() == null) {
-			CanonicalReference requested = CanonicalReference.parse(theSystem);
+			CanonicalReference requested = CanonicalReference.parse(theReference);
 
 			if (requested.url().startsWith(OID_URN_PREFIX)) {
-				IBaseResource aliasResult =
-						fetchCodeSystemByIdentifier(RFC_3986_IDENTIFIER_SYSTEM, requested.url(), requested.version());
+				CanonicalResourceIdentifierRequest request = new CanonicalResourceIdentifierRequest(
+						theResourceType, RFC_3986_IDENTIFIER_SYSTEM, requested.url(), requested.version());
+
+				IBaseResource aliasResult = fetchCanonicalResourceByIdentifier(request);
 
 				if (aliasResult != null) {
-					ourLog.info("Resolved CodeSystem identifier alias {}", requested.asString());
+					ourLog.info("Resolved {} identifier alias {}", theResourceType, requested.asString());
 
 					retVal = new CacheValue<>(aliasResult);
 				}
 			}
 		}
 
-		putInCache(key, retVal);
+		putInCache(theKey, retVal);
 		return retVal.getValue();
 	}
 
 	@Nullable
-	private IBaseResource fetchCodeSystemByCanonicalUrl(String theSystem) {
+	private IBaseResource fetchCanonicalResourceByCanonicalUrl(String theResourceType, String theReference) {
+
 		for (IValidationSupport next : myChain) {
 			IBaseResource outcome;
+
 			if (next instanceof ValidationSupportChain nestedChain) {
-				outcome = nestedChain.fetchCodeSystemByCanonicalUrl(theSystem);
+				outcome = nestedChain.fetchCanonicalResourceByCanonicalUrl(theResourceType, theReference);
 			} else {
-				outcome = next.fetchCodeSystem(theSystem);
+				outcome = switch (theResourceType) {
+					case "CodeSystem" -> next.fetchCodeSystem(theReference);
+					case "ValueSet" -> next.fetchValueSet(theReference);
+					default -> throw new IllegalArgumentException(
+							"Unsupported canonical resource type: " + theResourceType);};
 			}
+
 			if (outcome != null) {
-				ourLog.debug("CodeSystem {} fetched by canonical URL from {}", theSystem, next.getName());
+				ourLog.debug("{} {} fetched by canonical URL from {}", theResourceType, theReference, next.getName());
 
 				return outcome;
 			}
 		}
+
 		return null;
 	}
 
 	@Override
 	@Nullable
-	public IBaseResource fetchCodeSystemByIdentifier(
-			@Nonnull String theIdentifierSystem, @Nonnull String theIdentifierValue, @Nullable String theVersion) {
-
-		List<IBaseResource> candidates = new ArrayList<>();
+	public IBaseResource fetchCanonicalResourceByIdentifier(@Nonnull CanonicalResourceIdentifierRequest theRequest) {
 
 		for (IValidationSupport next : myChain) {
-			IBaseResource outcome =
-					next.fetchCodeSystemByIdentifier(theIdentifierSystem, theIdentifierValue, theVersion);
+			IBaseResource outcome = next.fetchCanonicalResourceByIdentifier(theRequest);
 
 			if (outcome != null) {
-				candidates.add(outcome);
+				ourLog.debug(
+						"{} identifier {}|{} fetched by {}",
+						theRequest.resourceType(),
+						theRequest.identifierSystem(),
+						theRequest.identifierValue(),
+						next.getName());
+
+				return outcome;
 			}
 		}
 
-		return CodeSystemIdentifierResolver.findCodeSystem(
-				getFhirContext(), candidates, theIdentifierSystem, theIdentifierValue, theVersion);
+		return null;
 	}
 
 	private <T> T fetchValue(ResourceByUrlKey<T> theKey, Function<IValidationSupport, T> theInvoker, String theUrl) {
@@ -811,9 +842,13 @@ public class ValidationSupportChain implements IValidationSupport {
 
 	@Override
 	public IBaseResource fetchValueSet(String theUrl) {
-		Function<IValidationSupport, IBaseResource> invoker = v -> v.fetchValueSet(theUrl);
+		if (isBlank(theUrl)) {
+			return null;
+		}
+
 		ResourceByUrlKey<IBaseResource> key = new ResourceByUrlKey<>(ResourceByUrlKey.TypeEnum.VALUESET, theUrl);
-		return fetchValue(key, invoker, theUrl);
+
+		return fetchCanonicalResource(key, "ValueSet", theUrl);
 	}
 
 	@SuppressWarnings("unchecked")

@@ -21,7 +21,8 @@ package ca.uhn.fhir.jpa.dao;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.FhirVersionEnum;
-import ca.uhn.fhir.context.support.CodeSystemIdentifierResolver;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierMatcher;
+import ca.uhn.fhir.context.support.CanonicalResourceIdentifierRequest;
 import ca.uhn.fhir.context.support.IValidationSupport;
 import ca.uhn.fhir.jpa.api.dao.DaoRegistry;
 import ca.uhn.fhir.jpa.api.dao.IFhirResourceDao;
@@ -42,7 +43,6 @@ import org.apache.commons.lang3.Validate;
 import org.hl7.fhir.instance.model.api.IAnyResource;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
-import org.hl7.fhir.r4.model.CodeSystem;
 import org.hl7.fhir.r4.model.IdType;
 import org.hl7.fhir.r4.model.StructureDefinition;
 import org.hl7.fhir.r4.model.ValueSet;
@@ -110,36 +110,39 @@ public class JpaPersistedResourceValidationSupport implements IValidationSupport
 		return retVal;
 	}
 
-	/**
-	 * Resolves a CodeSystem using CodeSystem.identifier.
-	 */
 	@Override
 	@Nullable
-	public IBaseResource fetchCodeSystemByIdentifier(
-			@Nonnull String theIdentifierSystem, @Nonnull String theIdentifierValue, @Nullable String theVersion) {
+	public IBaseResource fetchCanonicalResourceByIdentifier(@Nonnull CanonicalResourceIdentifierRequest theRequest) {
 
-		if (myCodeSystemType == null || !myDaoRegistry.isResourceTypeSupported("CodeSystem")) {
+		String resourceType =
+				switch (theRequest.resourceType()) {
+					case "CodeSystem" -> "CodeSystem";
+					case "ValueSet" -> "ValueSet";
+					default -> null;
+				};
+
+		if (resourceType == null || !myDaoRegistry.isResourceTypeSupported(resourceType)) {
 			return null;
 		}
 
 		SearchParameterMap params = SearchParameterMap.newSynchronous()
-				.add(CodeSystem.SP_IDENTIFIER, new TokenParam(theIdentifierSystem, theIdentifierValue));
+				.add("identifier", new TokenParam(theRequest.identifierSystem(), theRequest.identifierValue()));
 
-		if (isNotBlank(theVersion)) {
-			params.add(CodeSystem.SP_VERSION, new TokenParam(theVersion));
+		if (isNotBlank(theRequest.version())) {
+			params.add("version", new TokenParam(theRequest.version()));
 		}
 
-		IBundleProvider search = myDaoRegistry.getResourceDao("CodeSystem").search(params, new SystemRequestDetails());
+		IBundleProvider search = myDaoRegistry.getResourceDao(resourceType).search(params, new SystemRequestDetails());
 
 		Integer size = search.size();
+
 		if (size == null || size == 0) {
 			return null;
 		}
 
 		List<IBaseResource> resources = search.getResources(0, size);
 
-		return CodeSystemIdentifierResolver.findCodeSystem(
-				myFhirContext, resources, theIdentifierSystem, theIdentifierValue, theVersion);
+		return CanonicalResourceIdentifierMatcher.findMatch(myFhirContext, resources, theRequest);
 	}
 
 	@Override

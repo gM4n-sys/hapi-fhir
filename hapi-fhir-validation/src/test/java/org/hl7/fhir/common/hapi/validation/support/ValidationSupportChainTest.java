@@ -516,159 +516,194 @@ public class ValidationSupportChainTest extends BaseTest {
 	@Test
 	void testFetchCodeSystemFallsBackToOidIdentifier() {
 		FhirContext context = FhirContext.forR4Cached();
-	
+
 		CodeSystem codeSystem =
 				newCodeSystemWithOidIdentifier(HTTP_CODE_SYSTEM_URL, RESOURCE_VERSION, OID_REFERENCE);
-	
+
 		PrePopulatedValidationSupport support = new PrePopulatedValidationSupport(context);
 		support.addCodeSystem(codeSystem);
-	
+
 		ValidationSupportChain chain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				support);
-	
+
 		IBaseResource result = chain.fetchCodeSystem(OID_REFERENCE);
-	
+
 		assertSame(codeSystem, result);
 	}
-	
+
 	@Test
 	void testFetchValueSetFallsBackToOidIdentifier() {
 		FhirContext context = FhirContext.forR4Cached();
-	
+
 		ValueSet valueSet =
 				newValueSetWithOidIdentifier(HTTP_VALUE_SET_URL, RESOURCE_VERSION, OID_REFERENCE);
-	
+
 		PrePopulatedValidationSupport support = new PrePopulatedValidationSupport(context);
 		support.addValueSet(valueSet);
-	
+
 		ValidationSupportChain chain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				support);
-	
+
 		IBaseResource result = chain.fetchValueSet(OID_REFERENCE);
-	
+
 		assertSame(valueSet, result);
 	}
-	
+
 	@Test
 	void testFetchCodeSystemCanonicalMatchHasPriorityOverEarlierOidAlias() {
 		FhirContext context = FhirContext.forR4Cached();
-	
+
 		CodeSystem aliasResource =
 				newCodeSystemWithOidIdentifier(HTTP_CODE_SYSTEM_URL, RESOURCE_VERSION, OID_REFERENCE);
-	
+
 		CodeSystem canonicalResource = new CodeSystem()
 				.setUrl(OID_REFERENCE)
 				.setVersion(RESOURCE_VERSION);
-	
+
 		PrePopulatedValidationSupport aliasSupport = new PrePopulatedValidationSupport(context);
 		aliasSupport.addCodeSystem(aliasResource);
-	
+
 		PrePopulatedValidationSupport canonicalSupport = new PrePopulatedValidationSupport(context);
 		canonicalSupport.addCodeSystem(canonicalResource);
-	
+
 		ValidationSupportChain chain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				aliasSupport,
 				canonicalSupport);
-	
+
 		IBaseResource result = chain.fetchCodeSystem(OID_REFERENCE);
-	
+
 		assertSame(canonicalResource, result);
 		assertNotSame(aliasResource, result);
 	}
-	
+
 	@Test
 	void testFetchValueSetCanonicalMatchHasPriorityOverEarlierOidAlias() {
 		FhirContext context = FhirContext.forR4Cached();
-	
+
 		ValueSet aliasResource =
 				newValueSetWithOidIdentifier(HTTP_VALUE_SET_URL, RESOURCE_VERSION, OID_REFERENCE);
-	
+
 		ValueSet canonicalResource = new ValueSet()
 				.setUrl(OID_REFERENCE)
 				.setVersion(RESOURCE_VERSION);
-	
+
 		PrePopulatedValidationSupport aliasSupport = new PrePopulatedValidationSupport(context);
 		aliasSupport.addValueSet(aliasResource);
-	
+
 		PrePopulatedValidationSupport canonicalSupport = new PrePopulatedValidationSupport(context);
 		canonicalSupport.addValueSet(canonicalResource);
-	
+
 		ValidationSupportChain chain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				aliasSupport,
 				canonicalSupport);
-	
+
 		IBaseResource result = chain.fetchValueSet(OID_REFERENCE);
-	
+
 		assertSame(canonicalResource, result);
 		assertNotSame(aliasResource, result);
 	}
-	
+
 	@Test
 	void testNestedChainPreservesCanonicalPriorityForCodeSystem() {
 		FhirContext context = FhirContext.forR4Cached();
-	
+
 		CodeSystem aliasResource =
 				newCodeSystemWithOidIdentifier(HTTP_CODE_SYSTEM_URL, RESOURCE_VERSION, OID_REFERENCE);
-	
+
 		CodeSystem canonicalResource = new CodeSystem()
 				.setUrl(OID_REFERENCE)
 				.setVersion(RESOURCE_VERSION);
-	
+
 		PrePopulatedValidationSupport aliasSupport = new PrePopulatedValidationSupport(context);
 		aliasSupport.addCodeSystem(aliasResource);
-	
+
 		ValidationSupportChain nestedChain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				aliasSupport);
-	
+
 		PrePopulatedValidationSupport canonicalSupport = new PrePopulatedValidationSupport(context);
 		canonicalSupport.addCodeSystem(canonicalResource);
-	
+
 		ValidationSupportChain outerChain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				nestedChain,
 				canonicalSupport);
-	
+
 		IBaseResource result = outerChain.fetchCodeSystem(OID_REFERENCE);
-	
+
 		assertSame(canonicalResource, result);
 		assertNotSame(aliasResource, result);
 	}
-	
+
 	@Test
 	void testNestedChainPreservesCanonicalPriorityForValueSet() {
 		FhirContext context = FhirContext.forR4Cached();
-	
+
 		ValueSet aliasResource =
 				newValueSetWithOidIdentifier(HTTP_VALUE_SET_URL, RESOURCE_VERSION, OID_REFERENCE);
-	
+
 		ValueSet canonicalResource = new ValueSet()
 				.setUrl(OID_REFERENCE)
 				.setVersion(RESOURCE_VERSION);
-	
+
 		PrePopulatedValidationSupport aliasSupport = new PrePopulatedValidationSupport(context);
 		aliasSupport.addValueSet(aliasResource);
-	
+
 		ValidationSupportChain nestedChain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				aliasSupport);
-	
+
 		PrePopulatedValidationSupport canonicalSupport = new PrePopulatedValidationSupport(context);
 		canonicalSupport.addValueSet(canonicalResource);
-	
+
 		ValidationSupportChain outerChain = new ValidationSupportChain(
 				ValidationSupportChain.CacheConfiguration.disabled(),
 				nestedChain,
 				canonicalSupport);
-	
+
 		IBaseResource result = outerChain.fetchValueSet(OID_REFERENCE);
-	
+
 		assertSame(canonicalResource, result);
 		assertNotSame(aliasResource, result);
+	}
+
+	@Test
+	void testOidAliasUsesFirstMatchingValidationSupport() {
+		prepareMock(myValidationSupport0, myValidationSupport1);
+
+		CodeSystem first = new CodeSystem()
+				.setUrl("https://example.org/CodeSystem/first");
+
+		CodeSystem second = new CodeSystem()
+				.setUrl("https://example.org/CodeSystem/second");
+
+		when(myValidationSupport0.fetchCodeSystem(OID_REFERENCE))
+				.thenReturn(null);
+		when(myValidationSupport1.fetchCodeSystem(OID_REFERENCE))
+				.thenReturn(null);
+
+		when(myValidationSupport0.fetchCanonicalResourceByIdentifier(any()))
+				.thenReturn(first);
+		when(myValidationSupport1.fetchCanonicalResourceByIdentifier(any()))
+				.thenReturn(second);
+
+		ValidationSupportChain chain = new ValidationSupportChain(
+				ValidationSupportChain.CacheConfiguration.disabled(),
+				myValidationSupport0,
+				myValidationSupport1);
+
+		IBaseResource result = chain.fetchCodeSystem(OID_REFERENCE);
+
+		assertSame(first, result);
+
+		verify(myValidationSupport0, times(1))
+				.fetchCanonicalResourceByIdentifier(any());
+		verify(myValidationSupport1, never())
+				.fetchCanonicalResourceByIdentifier(any());
 	}
 
 	@ParameterizedTest
@@ -1020,31 +1055,31 @@ public class ValidationSupportChainTest extends BaseTest {
 			String theCanonicalUrl,
 			String theVersion,
 			String theOid) {
-	
+
 		CodeSystem codeSystem = new CodeSystem()
 				.setUrl(theCanonicalUrl)
 				.setVersion(theVersion);
-	
+
 		codeSystem.addIdentifier()
 				.setSystem(OID_IDENTIFIER_SYSTEM)
 				.setValue(theOid);
-	
+
 		return codeSystem;
 	}
-	
+
 	private static ValueSet newValueSetWithOidIdentifier(
 			String theCanonicalUrl,
 			String theVersion,
 			String theOid) {
-	
+
 		ValueSet valueSet = new ValueSet()
 				.setUrl(theCanonicalUrl)
 				.setVersion(theVersion);
-	
+
 		valueSet.addIdentifier()
 				.setSystem(OID_IDENTIFIER_SYSTEM)
 				.setValue(theOid);
-	
+
 		return valueSet;
 	}
 
